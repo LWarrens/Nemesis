@@ -20,7 +20,7 @@ struct TDLearner {
 
   TDLearner(EstimatorType estimator) : q_estimator(new EstimatorType(estimator)) {}
 
-  void setValueEstimator(EstimatorType estimator) {
+  void set_value_estimator(EstimatorType estimator) {
     q_estimator.reset(new EstimatorType(estimator));
   }
 
