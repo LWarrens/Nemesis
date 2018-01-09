@@ -21,11 +21,9 @@ where each float type defines the input type, output type, and weight type respe
 
 The (1, 1) constructor constructs a neural network expecting 1 input and 1 output.
 
-**learning_rate**: a variable that can be accessed directly representing the learning rate of the MLP
+**learning_rate**: a variable that can be accessed directly; it represents the learning rate of the MLP
 
-**decay_rate**: a variable that can be accessed directly representing the learning rate of the MLP
-
-(*TODO:* make accessors for these variables)
+**decay_rate**: a variable that can be accessed directly; it represents the learning rate of the MLP
 
 Currently, an MLP can be saved and loaded to a json file using the MLP's load and save functions.
 
