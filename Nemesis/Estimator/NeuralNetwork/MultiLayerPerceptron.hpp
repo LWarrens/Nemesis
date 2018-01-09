@@ -8,6 +8,7 @@
 #include <json.hpp>
 #include <fstream>
 #include <sstream>
+#include "../../Random.hpp"
 #include "NeuralNetwork.hpp"
 #include "Activation.hpp"
 
@@ -15,7 +16,7 @@ using json = nlohmann::json;
 
 std::uniform_real_distribution<> dis(-1, 1);
 
-template<typename WeightType>
+template<typename WeightType=float>
 struct Layer : std::vector<Neuron<WeightType>> {
     Layer() {}
 
@@ -37,7 +38,7 @@ struct Layer : std::vector<Neuron<WeightType>> {
     }
 };
 
-template<typename InputType, typename OutputType, typename WeightType>
+template<typename InputType=float, typename OutputType=float, typename WeightType=float>
 struct MLP : NeuralNetwork<InputType, OutputType> {
 	typedef std::vector<InputType> InputVectorType;
 	typedef std::vector<WeightType> WeightVectorType;
@@ -128,48 +129,8 @@ public:
         return {output, output_derivatives};
     };
 
-    double backpropagate(InputVectorType sample, OutputVectorType target, float learning_rate) {
-        // propagate
-        auto out_outd = propagate(sample, 0);
-        std::vector<WeightVectorType> outputs = out_outd.at(0);
-        std::vector<WeightVectorType> output_derivatives = out_outd.at(1);
+    double backpropagate(std::vector<TrainingInstance<InputType, OutputType>> samples, float learning_rate) {
 
-        // backpropagate
-        const size_t output_layer = layers.size() - 1;
-        // create zero array for error, handle first layer separately
-        std::vector<WeightVectorType> sample_error(layers.size());
-
-        for (int i = 0; i < output_layer; ++i) {
-            sample_error[i].resize(layers[i].size());
-        }
-
-        // Do error step for last layer
-        auto difference = subtract(target, outputs[outputs.size()-1]);
-        sample_error[output_layer] = WeightVectorType (difference.begin(), difference.end());
-        for (int i = output_layer - 1; i > -1; --i) {
-            auto next_layer = i + 1;
-            for (int j = 0; j < layers[i].size(); ++j) {
-                std::vector<WeightType> next_layer_weights(layers[next_layer].size());
-                for (int k = 0; k < layers[next_layer].size(); ++k) {
-                    next_layer_weights[k] = layers[next_layer][k].weights[j];
-                }
-                sample_error[i][j] = dot(next_layer_weights, sample_error[next_layer]);
-            }
-        }
-        // update
-        for (int i = 0; i < layers[0].size(); ++i) {
-            WeightType delta = sample_error[0][i] * output_derivatives[0][i];
-            layers[0][i].update(learning_rate, delta, sample);
-        }
-        for (int i = 1; i < layers.size(); ++i) {
-            for (int j = 0; j < layers[i].size(); ++j) {
-                WeightType delta = sample_error[i][j] * output_derivatives[i][j];
-				auto decayed_rate = learning_rate / (1.f + learning_decay * learning_epoch);
-                layers[i][j].update(decayed_rate, delta, outputs[i - 1]);
-				++learning_epoch;
-            }
-        }
-        //printf("actual: %f , target: %f\n", outputs[outputs.size()-1][0],target[0]);
         return 0;
     }
 
@@ -177,9 +138,87 @@ public:
         return propagate(input, 0)[0][layers.size() - 1];
     };
 
-    double fit(InputVectorType input, OutputVectorType target) {
-        return backpropagate(input, target, learning_rate);
-    };
+	double fit(std::vector<TrainingInstance<InputType, OutputType>> samples) {
+		// DATA PARALLELIZABLE BLOCK
+		const int sample_size = samples.size();
+		if (sample_size > 0) {
+			const size_t output_layer = layers.size() - 1;
+			const double inverse_size = 1. / sample_size;
+			std::vector<std::vector<WeightVectorType>> outputs(sample_size);
+			std::vector<std::vector<WeightVectorType>> output_derivatives(sample_size);
+			std::vector<std::vector<WeightVectorType>> sample_errors(sample_size, std::vector<WeightVectorType>(layers.size()));
+			std::vector<WeightVectorType> average_outputs(layers.size());
+			std::vector<WeightVectorType> average_output_derivatives(layers.size());
+			std::vector<WeightVectorType> average_sample_error(layers.size());
+			for (int i = 0; i < layers.size(); ++i) {
+				average_outputs[i] = WeightVectorType(layers[i].size(), 0);
+				average_output_derivatives[i] = WeightVectorType(layers[i].size(), 0);
+				average_sample_error[i] = WeightVectorType(layers[i].size(), 0);
+				for (int j = 0; j < sample_size; ++j) {
+					sample_errors[j][i].resize(layers[i].size());
+				}
+			}
+
+			for (int i = 0; i < sample_size; ++i) {
+				auto &sample = samples[i];
+				// propagate
+				std::array<std::vector<WeightVectorType>, 2> out_outd = propagate(sample.input, 0);
+				outputs[i] = out_outd.at(0);
+				output_derivatives[i] = out_outd.at(1);
+			}
+			// backpropagation - optimization step
+			for (int i = 0; i < sample_size; ++i) {
+				// create zero array for error, handle first layer separately
+				TrainingInstance<InputType, OutputType> &sample = samples[i];
+
+				// Do error step for last layer
+				auto difference = subtract(sample.target, outputs[i][outputs[i].size() - 1]);
+				sample_errors[i][output_layer] = WeightVectorType(difference.begin(), difference.end());
+				for (int j = output_layer - 1; j > -1; --j) {
+					auto next_layer = j + 1;
+					for (int k = 0; k < layers[j].size(); ++k) {
+						std::vector<WeightType> next_layer_weights(layers[next_layer].size());
+						for (int w = 0; w < layers[next_layer].size(); ++w) {
+							next_layer_weights[w] = layers[next_layer][w].weights[k];
+						}
+						sample_errors[i][j][k] = dot(next_layer_weights, sample_errors[i][next_layer]);
+					}
+				}
+			}
+			// END PARALLELIZABLE BLOCK
+
+			for (int i = 0; i < average_outputs.size(); ++i) {
+				for (int j = 0; j < average_outputs[i].size(); ++j) {
+					for (int k = 0; k < sample_size; ++k) {
+						average_outputs[i][j] += inverse_size * outputs[k][i][j];
+						average_output_derivatives[i][j] += inverse_size * output_derivatives[k][i][j];
+						average_sample_error[i][j] += inverse_size * sample_errors[k][i][j];
+					}
+				}
+			}
+
+
+			// update
+		
+			for (int i = 0; i < layers[0].size(); ++i) {
+				WeightType delta = average_sample_error[0][i] * average_output_derivatives[0][i];
+				for (int j_batch = 0; j_batch < samples.size(); ++j_batch) {
+					layers[0][i].update(learning_rate, delta, samples[j_batch].input);
+				}
+			}
+			for (int i = 1; i < layers.size(); ++i) {
+				for (int j = 0; j < layers[i].size(); ++j) {
+					WeightType delta = average_sample_error[i][j] * average_output_derivatives[i][j];
+					auto decayed_rate = learning_rate / (1.f + learning_decay * learning_epoch);
+					layers[i][j].update(decayed_rate, delta, average_outputs[i - 1]);
+					++learning_epoch;
+				}
+			}
+			//printf("actual: %f , target: %f\n", outputs[outputs.size()-1][0],target[0]);
+		}
+		return 0;
+		//return backpropagate(samples, learning_rate);
+	}
 
 	void print_weights() {
 		for (auto layer : layers) {

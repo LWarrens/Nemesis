@@ -16,7 +16,7 @@ std::uniform_real_distribution<float> dist(-M_PI, M_PI);
 
 int main() {
 	auto func = [](float x) { return sin(x); };
-	TDLearner<MLP<float, float, float>> agent(MLP<float, float, float> (1, 1));
+	TDLearner<MLP<>> agent(MLP<>(1, 1));
 	std::ifstream neural_net_file("test_net.json");
 	if (!neural_net_file.good()) {
 		agent.q_estimator->append_layer(Layer<float>(6, TanhActivation<float>()));
@@ -37,6 +37,7 @@ int main() {
     for (int i = 0; i < training_iter; ++i) {
         float rand_value = dist(randng);
         float actual_ans = func(rand_value);
+		TrainingInstance<> sample;
         auto a = std::vector<float>({rand_value});
         auto b = std::vector<float>({actual_ans});
         agent.update_values(a, b, {0});

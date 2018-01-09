@@ -2,7 +2,6 @@
 
 #include <functional>
 #include "../../Math.hpp"
-#include "../../Random.hpp"
 #include "../Estimator.hpp"
 #include "Activation.hpp"
 
@@ -11,14 +10,6 @@ struct Neuron {
     std::vector<WeightType> weights;
     WeightType bias;
     Activation<WeightType> activation;
-	void random_resize(int num_inputs) {
-		weights.resize(num_inputs);
-		std::uniform_real_distribution<> dis(-1, 1);
-		for (auto& each : weights) {
-			each = dis(rng);
-		}
-		bias = dis(rng);
-	}
     std::array<WeightType, 2> activate(std::vector<WeightType> neuron_input) {
         WeightType activation_value = bias + dot(weights, neuron_input);
         return {
@@ -37,5 +28,6 @@ struct Neuron {
 template<typename InputType, typename OutputType>
 struct NeuralNetwork : Estimator<InputType, OutputType> {
     virtual std::vector<OutputType> predict(std::vector<InputType> input) = 0;
-    virtual double fit(std::vector<InputType> input, std::vector<OutputType> target) = 0;
+    //virtual double fit(std::vector<InputType> input, std::vector<OutputType> target) = 0;
+	virtual double fit(std::vector<TrainingInstance<InputType, OutputType>> sample) = 0;
 };

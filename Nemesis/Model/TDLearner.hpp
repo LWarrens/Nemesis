@@ -37,10 +37,13 @@ struct TDLearner {
     for (auto index : action_indices) {
       old_reward[index] = reward[index];
     }
-    q_estimator->fit(state_action, old_reward);
+	std::vector<TrainingInstance<EstimatorType::input_type, EstimatorType::output_type>> samples{
+		TrainingInstance<EstimatorType::input_type, EstimatorType::output_type>(state_action, old_reward)
+	};
+	q_estimator->fit(samples);
   }
 
-  std::vector<typename EstimatorType::output_type>
+  std::vector<typename EstimatorType::input_type>
   get_value(std::vector<typename EstimatorType::input_type> state_action) {
     return q_estimator->predict(state_action);
   }
