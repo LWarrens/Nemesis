@@ -1,5 +1,4 @@
 #pragma once
 #include <random>
-//std::random_device rd;
-//std::mt19937 rng(rd);
-std::mt19937 rng(std::time(0));
+#include <ctime>
+std::mt19937 rng((unsigned int)std::time(0));
