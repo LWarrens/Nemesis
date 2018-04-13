@@ -3,10 +3,10 @@
 #include <memory>
 #include <functional>
 #include "../Estimator/Estimator.hpp"
+#include "../Version.hpp"
 
-template<typename EstimatorType, typename = typename std::enable_if<
-	std::is_base_of<Estimator<typename EstimatorType::input_type, typename EstimatorType::output_type>,
-	EstimatorType>::value>::type>
+template<typename EstimatorType,
+	typename = typename std::enable_if<std::is_base_of<Estimator<EstimatorType::num_outputs, EstimatorType::num_inputs, typename EstimatorType::input_type, typename EstimatorType::output_type>, EstimatorType>::value>::type>
 	struct TDLearner {
 	/*
 	 * represents the Utility/Value function V[state, action(s)] = reward(s)
@@ -14,9 +14,7 @@ template<typename EstimatorType, typename = typename std::enable_if<
 	std::unique_ptr<EstimatorType> q_estimator;
 	std::function<void()> choose_action;
 
-	TDLearner() {
-		q_estimator(new EstimatorType());
-	}
+	TDLearner() : q_estimator(new EstimatorType()) {}
 
 	TDLearner(EstimatorType estimator) : q_estimator(new EstimatorType(estimator)) {}
 
