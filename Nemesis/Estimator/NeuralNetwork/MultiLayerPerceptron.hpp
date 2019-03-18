@@ -14,6 +14,7 @@
 #include "../../Random.hpp"
 #include "NeuralNetwork.hpp"
 #include "Activation.hpp"
+#include "CostFunction.hpp"
 
 using json = nlohmann::json;
 
@@ -21,68 +22,82 @@ namespace Nemesis {
 	std::uniform_real_distribution<> dis(-1, 1);
 
 	template<typename WeightType = float>
-	struct Layer : std::vector<Neuron<WeightType>> {
-		Layer() {}
+	struct Layer_t : std::vector<Neuron_t<WeightType>> {
+		Layer_t() {}
 
-		Layer(size_t size, Activation<WeightType>& activation) {
+		template <typename ActivationType>
+		Layer_t(size_t size, ActivationType& activation) {
+			static_assert(std::is_base_of<Activation<WeightType>, ActivationType>::value, "The Derived Activation class must inherit the base Activation class");
 			add(size, activation);
 		}
 
-		Layer(std::vector<Neuron<WeightType>> layer_data) {
+		Layer_t(std::vector<Neuron_t<WeightType>> layer_data) {
 			assign(layer_data.begin(), layer_data.end());
 		}
 
-		Layer& add(size_t size, Activation<WeightType>& activation) {
+		template <typename ActivationType>
+		Layer_t& add(size_t size, ActivationType& activation) {
+			static_assert(std::is_base_of<Activation<WeightType>, ActivationType>::value, "The Derived Activation class must inherit the base Activation class");
 			for (int i = 0; i < size; ++i) {
-				Neuron<WeightType> a;
-				a.activation = activation;
-				this->push_back(a);
+				Neuron_t<WeightType> a;
+				a.activation.reset(new ActivationType(activation));
+				this->push_back(a);	
 			}
 			return *this;
 		}
 	};
+	typedef Layer_t<float> Layer;
 
 	template<typename WeightType = float>
-	struct Conv2DLayer : Layer<WeightType> {
+	struct Conv2DLayer_t : Layer_t<WeightType> {
 
 	};
 
-	template<std::size_t n_inputs, std::size_t n_outputs, typename InputType = float, typename OutputType = float, typename WeightType = float>
+	template<std::size_t n_inputs, std::size_t n_outputs, typename InputType = float, typename OutputType = float, typename WeightType = float, typename _CostFunction = QuadraticCostFunctionRidge<WeightType>>
 	struct MultiLayerPerceptron : NeuralNetwork<n_inputs, n_outputs, InputType, OutputType> {
 		typedef std::vector<InputType> InputVectorType;
 		typedef std::vector<WeightType> WeightVectorType;
 		typedef std::vector<OutputType> OutputVectorType;
-		MultiLayerPerceptron() {
-		}
+		MultiLayerPerceptron() {}
 	private:
 		WeightType learning_rate = .3;
 		WeightType learning_decay = 0.001;
 		unsigned long int learning_epoch = 0;
 
-		std::vector<Layer<WeightType>> layers;
+		std::vector<Layer_t<WeightType>> layers;
+		std::shared_ptr<_CostFunction> cost_function{ new _CostFunction() };
 	public:
-		double get_learning_rate() {
+		double get_learning_rate() const {
 			return learning_rate;
 		}
-		void set_learning_rate(WeightType rate) {
+		MultiLayerPerceptron<n_inputs, n_outputs, InputType, OutputType, WeightType>&
+		set_learning_rate(WeightType rate) {
 			learning_rate = rate;
+			return *this;
 		}
-		double get_learning_decay() {
+		double get_learning_decay() const {
 			return learning_decay;
 		}
-		void set_learning_decay(WeightType decay) {
+		MultiLayerPerceptron<n_inputs, n_outputs, InputType, OutputType, WeightType>&
+		set_learning_decay(WeightType decay) {
 			learning_decay = decay;
+			return *this;
 		}
-		double get_learning_epoch() {
+		double get_learning_epoch() const {
 			return learning_epoch;
 		}
-		void set_learning_epoch(unsigned int epoch = 0) {
+		MultiLayerPerceptron<n_inputs,n_outputs,InputType,OutputType, WeightType>&
+		set_learning_epoch(unsigned int epoch = 0) {
 			learning_epoch = epoch;
+			return *this;
 		}
-		void append_layer(Layer<WeightType> layer) {
+		template<typename ActivationType>
+		MultiLayerPerceptron<n_inputs, n_outputs, InputType, OutputType, WeightType>&
+		append_layer(size_t size, ActivationType& activation) {
+			Layer_t<WeightType> layer(size, activation);
 			auto num_weights = (layers.size() > 0) ? layers[layers.size() - 1].size() : num_inputs;
 			std::uniform_real_distribution<> dis(-1, 1);
-			for (Neuron<WeightType> &neuron : layer) {
+			for (Neuron_t<WeightType> &neuron : layer) {
 				auto &weights = neuron.weights;
 				weights.resize(num_weights);
 				for (WeightType &weight : weights) {
@@ -91,13 +106,38 @@ namespace Nemesis {
 				neuron.bias = dis(rng);
 			}
 			layers.push_back(layer);
+			return *this;
 		}
+		template<typename ActivationType>
+		MultiLayerPerceptron<n_inputs, n_outputs, InputType, OutputType, WeightType>&
+		add(size_t size, ActivationType& activation) {
+			auto& layer = layers.back();
+			layer.add(size, activation);
+			auto num_weights = (layers.size() > 1) ? layers[layers.size() - 2].size() : num_inputs;
+			std::uniform_real_distribution<> dis(-1, 1);
+			//optimize later
+			for (int i = 0; i < size; ++i) {
+				auto &neuron = layer[layer.size() - size + i];
+				auto &weights = neuron.weights;
+				weights.resize(num_weights);
+				for (WeightType &weight : weights) {
+					weight = dis(rng);
+				}
+				neuron.bias = dis(rng);
+			}
+			for (auto& neuron : layer) {
+				std::printf("[%s %d] ", neuron.activation->type.c_str(), neuron.weights.size());
+			}
+			std::printf("\n");
+			return *this;
+		}
+
 
 		void pop_layer() {
 			layers.pop_back();
 		}
 
-		bool is_valid() {
+		bool is_valid() const {
 			return this->num_outputs != layers[layers.size() - 1].size();
 		}
 
@@ -122,16 +162,16 @@ namespace Nemesis {
 			for (int j = 0; j < layers[0].size(); ++j) {
 				auto& neuron = layers[input_layer][j];
 				auto activation = neuron.activate(input_data_weight);
-				output[input_layer][j] = neuron.activation.function(activation);
-				output_derivatives[input_layer][j] = neuron.activation.derivative_function(activation);
+				output[input_layer][j] = neuron.activation->function(activation);
+				output_derivatives[input_layer][j] = neuron.activation->derivative_function(activation);
 			}
 			// handle other cases with dynamic programming, input is the last layer
 			for (int i = 1; i < layers.size(); ++i) {
 				for (int j = 0; j < layers[i].size(); ++j) {
 					auto& neuron = layers[i][j];
 					auto activation = neuron.activate(output[i - 1]);
-					output[i][j] = neuron.activation.function(activation);
-					output_derivatives[i][j] = neuron.activation.derivative_function(activation);
+					output[i][j] = neuron.activation->function(activation);
+					output_derivatives[i][j] = neuron.activation->derivative_function(activation);
 				}
 			}
 
@@ -154,7 +194,7 @@ namespace Nemesis {
 				auto& neuron = layers[input_layer][j];
 				//if fully connected just pass all inputs, if bitmask, do otherwise
 				auto activation = neuron.activate(inputs);
-				outputs[j] = neuron.activation.function(activation);
+				outputs[j] = neuron.activation->function(activation);
 			}
 			// handle other cases with dynamic programming, input is the last layer
 			for (int i = 1; i < layers.size(); ++i) {
@@ -164,13 +204,13 @@ namespace Nemesis {
 					auto& neuron = layers[i][j];
 					//if fully connected just pass all inputs, if bitmask, do otherwise
 					auto activation = neuron.activate(inputs);
-					outputs[j] = neuron.activation.function(activation);
+					outputs[j] = neuron.activation->function(activation);
 				}
 			}
 			return outputs;
 		}
 
-		ErrorType fit(std::vector<TrainingInstance<InputType, OutputType>> samples) {
+		ErrorType fit(std::vector<TrainingInstance_t<InputType, OutputType>> samples) {
 			// DATA PARALLELIZABLE BLOCK
 			const size_t sample_size = samples.size();
 			if (sample_size > 0) {
@@ -195,14 +235,14 @@ namespace Nemesis {
 				parallel_index.store(0);
 				std::for_each(std::execution::par_unseq, samples.begin(), samples.end(), [this, &parallel_index, &samples, &outputs, &output_derivatives, &sample_errors, &output_layer](auto &given_sample) {
 					int i = parallel_index.fetch_add(1);
-					auto &sample = samples[i];
+					auto &sample = given_sample;
 					// propagate
 					std::array<std::vector<WeightVectorType>, 2> out_outd = propagate(sample.input, 0);
 					outputs[i] = out_outd[0];
 					output_derivatives[i] = out_outd[1];
 
 					// Do error step for last layer
-					auto difference = subtract(sample.target, outputs[i][outputs[i].size() - 1]);
+					auto difference = cost_function.get()->get_gradient(sample.target, outputs[i][outputs[i].size() - 1]);
 					sample_errors[i][output_layer] = WeightVectorType(difference);
 					for (int j = output_layer - 1; j > -1; --j) {
 						auto next_layer = j + 1;
@@ -248,7 +288,7 @@ namespace Nemesis {
 			//return backpropagate(samples, learning_rate);
 		}
 
-		void print_weights() {
+		void print_params() {
 			for (auto layer : layers) {
 				std::printf("[");
 				for (auto neuron : layer) {
@@ -269,11 +309,11 @@ namespace Nemesis {
 		}
 
 		void json_load(json j_file) {
-			std::vector<Layer<WeightType>> tmp_layers;
+			std::vector<Layer_t<WeightType>> tmp_layers;
 			for (auto j_layer : j_file["layers"]) {
-				std::vector<Neuron<WeightType>> layer;
+				std::vector<Neuron_t<WeightType>> layer;
 				for (auto j_neuron : j_layer["neurons"]) {
-					Neuron<WeightType> n;
+					Neuron_t<WeightType> n;
 					for (auto j_weight : j_neuron["weights"]) {
 						n.weights.push_back(j_weight.get<WeightType>());
 					}
@@ -282,21 +322,21 @@ namespace Nemesis {
 					auto j_activation = j_neuron["activation"];
 					std::string activation_type = j_activation["type"].get<std::string>();
 					if (activation_type == "linear") {
-						n.activation = LinearActivation<WeightType>();
+						n.activation.reset(new LinearActivation_t<WeightType>());
 					}
 					else if (activation_type == "tanh") {
-						n.activation = TanhActivation<WeightType>();
+						n.activation.reset(new TanhActivation_t<WeightType>());
 					}
 					else if (activation_type == "logistic") {
-						n.activation = LogisticActivation<WeightType>();
+						n.activation.reset(new LogisticActivation_t<WeightType>());
 					}
 					else if (activation_type == "softplus") {
-						n.activation = SoftplusActivation<WeightType>();
+						n.activation.reset(new SoftplusActivation_t<WeightType>());
 					}
 					else if (activation_type == "rectifier") {
-						RectifierActivation<WeightType> recti;
+						RectifierActivation_t<WeightType> recti;
 						recti.leaky_parameter = j_activation["leaky_parameter"].get<WeightType>();
-						n.activation = recti;
+						n.activation.reset(recti);
 					}
 					layer.push_back(n);
 				}
@@ -308,11 +348,11 @@ namespace Nemesis {
 			json j_file;
 			for (auto layer : layers) {
 				json j_layer;
-				for (auto neuron : layer) {
+				for (auto& neuron : layer) {
 					json j_neuron;
 					j_neuron["weights"] = neuron.weights;
 					j_neuron["bias"] = neuron.bias;
-					j_neuron["activation"]["type"] = neuron.activation.type;
+					j_neuron["activation"]["type"] = neuron.activation->type;
 					j_layer["neurons"].push_back(j_neuron);
 				}
 				j_file["layers"].push_back(j_layer);
@@ -325,11 +365,11 @@ namespace Nemesis {
 			if (ifile.good()) {
 				json j_file;
 				ifile >> j_file;
-				std::vector<Layer<WeightType>> tmp_layers;
+				std::vector<Layer_t<WeightType>> tmp_layers;
 				for (auto &j_layer : j_file["layers"]) {
-					std::vector<Neuron<WeightType>> layer;
+					std::vector<Neuron_t<WeightType>> layer;
 					for (auto &j_neuron : j_layer["neurons"]) {
-						Neuron<WeightType> n;
+						Neuron_t<WeightType> n;
 						for (auto j_weight : j_neuron["weights"]) {
 							n.weights.push_back(j_weight.get<WeightType>());
 						}
@@ -338,23 +378,23 @@ namespace Nemesis {
 						auto &j_activation = j_neuron["activation"];
 						std::string activation_type = j_activation["type"].get<std::string>();
 						if (activation_type == "linear") {
-							n.activation = LinearActivation<WeightType>();
+							n.activation.reset(new LinearActivation_t<WeightType>());
 						}
 						else if (activation_type == "tanh") {
-							n.activation = TanhActivation<WeightType>();
+							n.activation.reset(new TanhActivation_t<WeightType>());
 						}
 						else if (activation_type == "logistic") {
-							n.activation = LogisticActivation<WeightType>();
+							n.activation.reset(new LogisticActivation_t<WeightType>());
 						}
 						else if (activation_type == "softplus") {
-							n.activation = SoftplusActivation<WeightType>();
+							n.activation.reset(new SoftplusActivation_t<WeightType>());
 						}
 						else if (activation_type == "rectifier") {
-							RectifierActivation<WeightType> recti;
-							recti.leaky_parameter = j_activation["leaky_parameter"].get<WeightType>();
-							n.activation = recti;
+							auto recti = new RectifierActivation_t<WeightType>();
+							recti->leaky_parameter = j_activation["leaky_parameter"].get<WeightType>();
+							n.activation.reset(recti);
 						}
-						layer.push_back(n);
+						layer.push_back(std::move(n));
 					}
 					tmp_layers.push_back(layer);
 				}
@@ -368,13 +408,16 @@ namespace Nemesis {
 
 		void save(const char* filename) {
 			json j_file;
-			for (auto layer : layers) {
+			for (Layer_t<WeightType>& layer : layers) {
 				json j_layer;
-				for (auto neuron : layer) {
+				for (Neuron_t<WeightType>& neuron : layer) {
 					json j_neuron;
 					j_neuron["weights"] = neuron.weights;
 					j_neuron["bias"] = neuron.bias;
-					j_neuron["activation"]["type"] = neuron.activation.type;
+					j_neuron["activation"]["type"] = neuron.activation->type;
+					if (neuron.activation->type == "rectifier") {
+						j_neuron["activation"]["leaky_parameter"] = ((RectifierActivation*)neuron.activation.get())->leaky_parameter;
+					}
 					j_layer["neurons"].push_back(j_neuron);
 				}
 				j_file["layers"].push_back(j_layer);

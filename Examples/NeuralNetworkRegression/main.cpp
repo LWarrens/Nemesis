@@ -22,27 +22,29 @@ using namespace Nemesis;
 std::mt19937 randng(std::time(0));
 std::uniform_real_distribution<float> dist(-2*M_PI, 2*M_PI);
 
-//typedef MultiLayerPerceptron<1,1> 1D_MLP; // definition exists to avoid having to add template braces at all
+bool use_saved_network = false;
 
 int main() {
-	auto func = [](float x) { return sin(x); };
+	auto test_function = [](float x) { return sin(x); };
 	TDLearner<MultiLayerPerceptron<1, 1>> agent;
 	std::ifstream neural_net_file("test_net.json");
-	if (!neural_net_file.good()) {
-		agent.q_estimator->append_layer(Layer<>(6, TanhActivation<>{}));
-		agent.q_estimator->append_layer(Layer<>(12, TanhActivation<>()));
-		agent.q_estimator->append_layer(Layer<>(36, TanhActivation<>()));
-		agent.q_estimator->append_layer(Layer<>(1, LinearActivation<>()));
+	if (!use_saved_network || !neural_net_file.good()) {
+		agent.q_estimator
+			->append_layer(4, TanhActivation{}).add(2, RectifierActivation(.5f))
+			.append_layer(8, TanhActivation()).add(2, RectifierActivation(.5f))
+			.append_layer(32, TanhActivation()).add(2, RectifierActivation(.5f))
+			.append_layer(1, LinearActivation());
 		agent.q_estimator->save("test_net_1.json");
 		std::printf("initialized:\n");
 	}
 
 	agent.q_estimator->load("test_net_1.json");
 	std::cout << agent.q_estimator->as_json() << std::endl;
-	agent.q_estimator->set_learning_epoch(0);
-	agent.q_estimator->set_learning_rate(.005f);
 	auto training_iter = 100000;
-	agent.q_estimator->set_learning_decay(1.f / training_iter);
+	agent.q_estimator
+		->set_learning_epoch(0)
+		.set_learning_rate(.005f)
+		.set_learning_decay(1.f / training_iter);
 	auto training_div = 1;
 
 	auto num_in_div = training_iter / training_div;
@@ -50,8 +52,11 @@ int main() {
 	for (int i = 0; i < training_div; ++i) {
 		for (int j = 0; j < num_in_div; ++j) {
 			float rand_value = dist(randng);
-			float actual_ans = func(rand_value);
-			agent.q_estimator->fit({TrainingInstance<>({ rand_value }, { actual_ans })});
+			float actual_ans = test_function(rand_value);
+			std::vector<TrainingInstance> dataset = {
+				{{ rand_value }, { actual_ans }}
+			};
+			agent.q_estimator->fit(dataset);
 		}
 	}
 
@@ -60,7 +65,7 @@ int main() {
 	std::vector<float> test_responses(num_questions);
 	for (int i = 0; i < num_questions; ++i) {
 		float rand_value = dist(randng);
-		float actual_ans = func(rand_value);
+		float actual_ans = test_function(rand_value);
 		auto response = agent.get_value({ rand_value })[0];
 		std::printf("-----------------\nquestion: sin(%f) = ?,\n actual ans: %f response: %f\n",
 					rand_value / M_PI, actual_ans, response);

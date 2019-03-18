@@ -35,7 +35,7 @@ template<typename EstimatorType,
 		for (auto index : action_indices) {
 			old_reward[index] = reward[index];
 		}
-		std::vector<TrainingInstance<EstimatorType::input_type, EstimatorType::output_type>> samples {
+		std::vector<TrainingInstance_t<EstimatorType::input_type, EstimatorType::output_type>> samples {
 			TrainingInstance<EstimatorType::input_type, EstimatorType::output_type>(state_action, old_reward)
 		};
 		q_estimator->fit(samples);

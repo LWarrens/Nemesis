@@ -14,7 +14,10 @@ namespace Nemesis {
 			}
 			return a[0];
 		}
-		throw std::runtime_error("dot: vectors must be of equal length and non-empty");
+		if (a.size() != b.size()) {
+			throw std::runtime_error("dot product multiplication: vectors are not the same size");
+		}
+		throw std::runtime_error("vectors must be non-empty");
 	}
 
 	template<typename T>
@@ -196,4 +199,11 @@ namespace Nemesis {
 		throw std::runtime_error("multiply: vector non-empty");
 	}
 
+	struct weight {
+
+	};
+
+	struct vector {
+
+	};
 }
